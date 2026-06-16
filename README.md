@@ -1,8 +1,8 @@
-# Claude Usage - Home Assistant Integration
+# Agentic AI Usage - Home Assistant Integration
 
-A custom Home Assistant integration that monitors your Claude (Anthropic) subscription usage.
+A custom Home Assistant integration that monitors your coding-agent subscription usage across Claude (Anthropic), Codex (OpenAI), and Antigravity (Google).
 
-![Claude Usage Screenshot](screenshot.jpg)
+![Agentic AI Usage Screenshot](screenshot.jpg)
 
 ## Sensors
 
