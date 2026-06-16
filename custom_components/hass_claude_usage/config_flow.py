@@ -66,39 +66,17 @@ class ClaudeUsageConfigFlow(ConfigFlow, domain=DOMAIN):
         self._pkce_verifier: str | None = None
         self._pkce_challenge: str | None = None
         self._state: str | None = None
-        self._provider: str | None = None
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
-        """Handle provider selection."""
-        if user_input is not None:
-            self._provider = user_input[CONF_PROVIDER]
-            if self._provider == PROVIDER_CODEX:
-                return await self.async_step_codex()
-            if self._provider == PROVIDER_ANTIGRAVITY:
-                return await self.async_step_antigravity()
-            return await self.async_step_claude()
+        """Show a menu to pick which provider to configure.
 
-        return self.async_show_form(
+        Using a menu (rather than a selector form that chains into the provider
+        step) makes each provider step a directly-invoked flow step, so its form
+        description placeholders (e.g. the Claude OAuth ``{url}``) are preserved.
+        """
+        return self.async_show_menu(
             step_id="user",
-            data_schema=vol.Schema(
-                {
-                    vol.Required(CONF_PROVIDER): selector.SelectSelector(
-                        selector.SelectSelectorConfig(
-                            options=[
-                                selector.SelectOptionDict(
-                                    value=PROVIDER_CLAUDE, label="Claude (Anthropic)"
-                                ),
-                                selector.SelectOptionDict(
-                                    value=PROVIDER_CODEX, label="Codex (OpenAI)"
-                                ),
-                                selector.SelectOptionDict(
-                                    value=PROVIDER_ANTIGRAVITY, label="Antigravity (Google)"
-                                ),
-                            ]
-                        )
-                    )
-                }
-            ),
+            menu_options=[PROVIDER_CLAUDE, PROVIDER_CODEX, PROVIDER_ANTIGRAVITY],
         )
 
     async def async_step_claude(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:

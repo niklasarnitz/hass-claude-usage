@@ -1,6 +1,6 @@
 {
   "domain": "hass_claude_usage",
-  "name": "Claude Usage",
+  "name": "Agentic AI Usage",
   "codeowners": ["@trickv"],
   "config_flow": true,
   "documentation": "https://github.com/trickv/hass-claude-usage",

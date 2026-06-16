@@ -4,8 +4,10 @@
       "user": {
         "title": "Select AI Provider",
         "description": "Choose which AI service to track usage for.",
-        "data": {
-          "provider": "Provider"
+        "menu_options": {
+          "claude": "Claude (Anthropic)",
+          "codex": "Codex (OpenAI)",
+          "antigravity": "Antigravity (Google)"
         }
       },
       "claude": {
@@ -17,7 +19,7 @@
       },
       "codex": {
         "title": "Configure Codex (OpenAI)",
-        "description": "Enter your OpenAI Codex bearer token. You can obtain this from the Codex CLI or app.\n\nThe Account ID is optional and only needed for organization accounts.",
+        "description": "Sign in once with the Codex CLI or app, then read the values from `~/.codex/auth.json` (or `$CODEX_HOME/auth.json`).\n\nOn the machine where Codex is installed, run:\n\n**Bearer Token**\n`jq -r '.tokens.access_token' ~/.codex/auth.json`\n\n**Account ID** (optional — only for organization/workspace accounts)\n`jq -r '.tokens.account_id' ~/.codex/auth.json`\n\nPaste the values below. Codex rotates this token periodically; if usage stops updating, re-run the command and update the token here.",
         "data": {
           "codex_access_token": "Bearer Token",
           "codex_account_id": "Account ID (optional)"
@@ -25,7 +27,7 @@
       },
       "antigravity": {
         "title": "Configure Antigravity (Google)",
-        "description": "Enter your Google OAuth credentials for Antigravity (Google Code Assist).\n\nYou can find these in `~/.codexbar/antigravity/oauth_creds.json` if you have CodexBar installed, or by running `agy auth`.\n\nRefresh Token, Client ID, and Client Secret are optional but required for automatic token renewal.",
+        "description": "Antigravity signs in with Google OAuth. The simplest way to get these values is to sign in with [CodexBar](https://github.com/steipete/codexbar) or the `agy` CLI, which writes them to `~/.codexbar/antigravity/oauth_creds.json`.\n\nOn that machine, extract each value with `jq`:\n\n**Access Token**\n`jq -r '.access_token' ~/.codexbar/antigravity/oauth_creds.json`\n\n**Refresh Token**\n`jq -r '.refresh_token' ~/.codexbar/antigravity/oauth_creds.json`\n\n**Client ID**\n`jq -r '.client_id' ~/.codexbar/antigravity/oauth_creds.json`\n\n**Client Secret**\n`jq -r '.client_secret' ~/.codexbar/antigravity/oauth_creds.json`\n\n**Project ID**\n`jq -r '.project_id' ~/.codexbar/antigravity/oauth_creds.json`\n\nThe access token expires after about an hour. Provide the Refresh Token, Client ID, and Client Secret so the integration can renew it automatically.",
         "data": {
           "antigravity_access_token": "Access Token",
           "antigravity_refresh_token": "Refresh Token (optional)",
