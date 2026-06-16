@@ -2,33 +2,65 @@
   "config": {
     "step": {
       "user": {
+        "title": "Select AI Provider",
+        "description": "Choose which AI service to track usage for.",
+        "data": {
+          "provider": "Provider"
+        }
+      },
+      "claude": {
         "title": "Authenticate with Claude",
         "description": "To authenticate, [open this link]({url}) to log in with Anthropic.\n\nAfter authorizing, paste the authorization code below.\n\nNote: The code may include a '#' character - paste the entire string.",
         "data": {
           "auth_code": "Authorization Code"
         }
       },
-      "reauth_confirm": {
-        "title": "Re-authenticate with Claude",
-        "description": "Your Claude authentication has expired or been revoked. [Open this link]({url}) to log in again with Anthropic.\n\nAfter authorizing, paste the new authorization code below.",
+      "codex": {
+        "title": "Configure Codex (OpenAI)",
+        "description": "Enter your OpenAI Codex bearer token. You can obtain this from the Codex CLI or app.\n\nThe Account ID is optional and only needed for organization accounts.",
         "data": {
-          "auth_code": "Authorization Code"
+          "codex_access_token": "Bearer Token",
+          "codex_account_id": "Account ID (optional)"
+        }
+      },
+      "antigravity": {
+        "title": "Configure Antigravity (Google)",
+        "description": "Enter your Google OAuth credentials for Antigravity (Google Code Assist).\n\nYou can find these in `~/.codexbar/antigravity/oauth_creds.json` if you have CodexBar installed, or by running `agy auth`.\n\nRefresh Token, Client ID, and Client Secret are optional but required for automatic token renewal.",
+        "data": {
+          "antigravity_access_token": "Access Token",
+          "antigravity_refresh_token": "Refresh Token (optional)",
+          "antigravity_client_id": "Client ID (optional)",
+          "antigravity_client_secret": "Client Secret (optional)",
+          "antigravity_project_id": "Project ID (optional)"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Re-authenticate",
+        "description": "Your authentication has expired or been revoked. Please provide new credentials.",
+        "data": {
+          "auth_code": "Authorization Code",
+          "codex_access_token": "Bearer Token",
+          "antigravity_access_token": "Access Token"
         }
       }
     },
     "error": {
       "missing_code": "Please enter the authorization code",
-      "exchange_failed": "Failed to exchange code for tokens. Please try again."
+      "exchange_failed": "Failed to exchange code for tokens. Please try again.",
+      "missing_token": "Please enter a token",
+      "codex_auth_failed": "Token rejected by the Codex API. Please check that it is valid.",
+      "antigravity_auth_failed": "Token rejected by the Antigravity API. Please check that it is valid.",
+      "cannot_connect": "Could not connect to the API. Please check your network connection."
     },
     "abort": {
-      "already_configured": "Claude Usage is already configured",
+      "already_configured": "This provider is already configured",
       "reauth_successful": "Re-authentication was successful"
     }
   },
   "options": {
     "step": {
       "init": {
-        "title": "Claude Usage Options",
+        "title": "Usage Options",
         "description": "Configure polling interval. Note: the usage API has rate limits, so avoid setting this too low.",
         "data": {
           "update_interval": "Update interval (seconds)"

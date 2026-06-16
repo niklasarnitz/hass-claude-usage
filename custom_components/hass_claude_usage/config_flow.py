@@ -19,13 +19,24 @@ from homeassistant.config_entries import (
     OptionsFlow,
 )
 from homeassistant.core import callback
-from homeassistant.helpers import aiohttp_client
+from homeassistant.helpers import aiohttp_client, selector
 
 from .const import (
+    ANTIGRAVITY_FETCH_MODELS_URL,
     API_BETA_HEADER,
+    CODEX_USAGE_URL,
     CONF_ACCESS_TOKEN,
     CONF_ACCOUNT_NAME,
+    CONF_ANTIGRAVITY_ACCESS_TOKEN,
+    CONF_ANTIGRAVITY_CLIENT_ID,
+    CONF_ANTIGRAVITY_CLIENT_SECRET,
+    CONF_ANTIGRAVITY_EXPIRES_AT,
+    CONF_ANTIGRAVITY_PROJECT_ID,
+    CONF_ANTIGRAVITY_REFRESH_TOKEN,
+    CONF_CODEX_ACCESS_TOKEN,
+    CONF_CODEX_ACCOUNT_ID,
     CONF_EXPIRES_AT,
+    CONF_PROVIDER,
     CONF_REFRESH_TOKEN,
     CONF_SUBSCRIPTION_LEVEL,
     CONF_UPDATE_INTERVAL,
@@ -37,6 +48,9 @@ from .const import (
     OAUTH_SCOPES,
     OAUTH_TOKEN_URL,
     PROFILE_API_URL,
+    PROVIDER_ANTIGRAVITY,
+    PROVIDER_CLAUDE,
+    PROVIDER_CODEX,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -52,17 +66,49 @@ class ClaudeUsageConfigFlow(ConfigFlow, domain=DOMAIN):
         self._pkce_verifier: str | None = None
         self._pkce_challenge: str | None = None
         self._state: str | None = None
+        self._provider: str | None = None
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
-        """Handle the user OAuth flow - single step."""
+        """Handle provider selection."""
+        if user_input is not None:
+            self._provider = user_input[CONF_PROVIDER]
+            if self._provider == PROVIDER_CODEX:
+                return await self.async_step_codex()
+            if self._provider == PROVIDER_ANTIGRAVITY:
+                return await self.async_step_antigravity()
+            return await self.async_step_claude()
+
+        return self.async_show_form(
+            step_id="user",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_PROVIDER): selector.SelectSelector(
+                        selector.SelectSelectorConfig(
+                            options=[
+                                selector.SelectOptionDict(
+                                    value=PROVIDER_CLAUDE, label="Claude (Anthropic)"
+                                ),
+                                selector.SelectOptionDict(
+                                    value=PROVIDER_CODEX, label="Codex (OpenAI)"
+                                ),
+                                selector.SelectOptionDict(
+                                    value=PROVIDER_ANTIGRAVITY, label="Antigravity (Google)"
+                                ),
+                            ]
+                        )
+                    )
+                }
+            ),
+        )
+
+    async def async_step_claude(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """Handle Claude OAuth flow."""
         errors: dict[str, str] = {}
 
-        # Generate PKCE and state on first load
         if self._pkce_verifier is None:
             self._pkce_verifier, self._pkce_challenge = generate_pkce()
             self._state = secrets.token_urlsafe(32)
 
-        # Build OAuth URL
         params = urlencode(
             {
                 "code": "true",
@@ -82,17 +128,14 @@ class ClaudeUsageConfigFlow(ConfigFlow, domain=DOMAIN):
             if not auth_code:
                 errors["auth_code"] = "missing_code"
             else:
-                # Exchange code for tokens
                 token_data = await self._exchange_code(auth_code)
                 if token_data is None:
                     errors["auth_code"] = "exchange_failed"
                 else:
-                    # Fetch account info for display
                     account_name, subscription_level = await self._fetch_account_info(
                         token_data["access_token"]
                     )
 
-                    # Build title with name and subscription level
                     title_parts = ["Claude Usage"]
                     if account_name:
                         title_parts.append(f"({account_name}")
@@ -107,6 +150,7 @@ class ClaudeUsageConfigFlow(ConfigFlow, domain=DOMAIN):
                     return self.async_create_entry(
                         title=title,
                         data={
+                            CONF_PROVIDER: PROVIDER_CLAUDE,
                             CONF_ACCESS_TOKEN: token_data["access_token"],
                             CONF_REFRESH_TOKEN: token_data.get("refresh_token", ""),
                             CONF_EXPIRES_AT: time.time() + token_data.get("expires_in", 3600),
@@ -119,7 +163,7 @@ class ClaudeUsageConfigFlow(ConfigFlow, domain=DOMAIN):
                     )
 
         return self.async_show_form(
-            step_id="user",
+            step_id="claude",
             data_schema=vol.Schema(
                 {
                     vol.Required("auth_code"): str,
@@ -129,14 +173,107 @@ class ClaudeUsageConfigFlow(ConfigFlow, domain=DOMAIN):
             errors=errors,
         )
 
+    async def async_step_codex(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """Handle Codex bearer token input."""
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            token = user_input.get(CONF_CODEX_ACCESS_TOKEN, "").strip()
+            account_id = (user_input.get(CONF_CODEX_ACCOUNT_ID) or "").strip()
+            if not token:
+                errors[CONF_CODEX_ACCESS_TOKEN] = "missing_token"
+            else:
+                valid = await self._validate_codex_token(token, account_id or None)
+                if not valid:
+                    errors[CONF_CODEX_ACCESS_TOKEN] = "codex_auth_failed"
+                else:
+                    await self.async_set_unique_id(f"{DOMAIN}_{PROVIDER_CODEX}")
+                    self._abort_if_unique_id_configured()
+                    return self.async_create_entry(
+                        title="Codex Usage (OpenAI)",
+                        data={
+                            CONF_PROVIDER: PROVIDER_CODEX,
+                            CONF_CODEX_ACCESS_TOKEN: token,
+                            CONF_CODEX_ACCOUNT_ID: account_id,
+                        },
+                        options={CONF_UPDATE_INTERVAL: DEFAULT_UPDATE_INTERVAL},
+                    )
+
+        return self.async_show_form(
+            step_id="codex",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_CODEX_ACCESS_TOKEN): selector.TextSelector(
+                        selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
+                    ),
+                    vol.Optional(CONF_CODEX_ACCOUNT_ID): str,
+                }
+            ),
+            errors=errors,
+        )
+
+    async def async_step_antigravity(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Handle Antigravity Google OAuth credentials input."""
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            access_token = (user_input.get(CONF_ANTIGRAVITY_ACCESS_TOKEN) or "").strip()
+            refresh_token = (user_input.get(CONF_ANTIGRAVITY_REFRESH_TOKEN) or "").strip()
+            client_id = (user_input.get(CONF_ANTIGRAVITY_CLIENT_ID) or "").strip()
+            client_secret = (user_input.get(CONF_ANTIGRAVITY_CLIENT_SECRET) or "").strip()
+            project_id = (user_input.get(CONF_ANTIGRAVITY_PROJECT_ID) or "").strip()
+
+            if not access_token:
+                errors[CONF_ANTIGRAVITY_ACCESS_TOKEN] = "missing_token"
+            else:
+                valid = await self._validate_antigravity_token(access_token, project_id or None)
+                if not valid:
+                    errors[CONF_ANTIGRAVITY_ACCESS_TOKEN] = "antigravity_auth_failed"
+                else:
+                    await self.async_set_unique_id(f"{DOMAIN}_{PROVIDER_ANTIGRAVITY}")
+                    self._abort_if_unique_id_configured()
+                    return self.async_create_entry(
+                        title="Antigravity Usage (Google)",
+                        data={
+                            CONF_PROVIDER: PROVIDER_ANTIGRAVITY,
+                            CONF_ANTIGRAVITY_ACCESS_TOKEN: access_token,
+                            CONF_ANTIGRAVITY_REFRESH_TOKEN: refresh_token,
+                            CONF_ANTIGRAVITY_CLIENT_ID: client_id,
+                            CONF_ANTIGRAVITY_CLIENT_SECRET: client_secret,
+                            CONF_ANTIGRAVITY_PROJECT_ID: project_id,
+                            CONF_ANTIGRAVITY_EXPIRES_AT: 0,
+                        },
+                        options={CONF_UPDATE_INTERVAL: DEFAULT_UPDATE_INTERVAL},
+                    )
+
+        return self.async_show_form(
+            step_id="antigravity",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_ANTIGRAVITY_ACCESS_TOKEN): selector.TextSelector(
+                        selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
+                    ),
+                    vol.Optional(CONF_ANTIGRAVITY_REFRESH_TOKEN): selector.TextSelector(
+                        selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
+                    ),
+                    vol.Optional(CONF_ANTIGRAVITY_CLIENT_ID): str,
+                    vol.Optional(CONF_ANTIGRAVITY_CLIENT_SECRET): selector.TextSelector(
+                        selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
+                    ),
+                    vol.Optional(CONF_ANTIGRAVITY_PROJECT_ID): str,
+                }
+            ),
+            errors=errors,
+        )
+
     async def _exchange_code(self, code: str) -> dict[str, Any] | None:
         """Exchange authorization code for tokens."""
-        # The code from the callback URL may contain a # separator with state
         code_parts = code.split("#")
         auth_code = code_parts[0]
         state = code_parts[1] if len(code_parts) > 1 else ""
 
-        # Validate state parameter to prevent CSRF
         if state and self._state and state != self._state:
             _LOGGER.error("OAuth state mismatch - possible CSRF attack")
             return None
@@ -188,12 +325,10 @@ class ClaudeUsageConfigFlow(ConfigFlow, domain=DOMAIN):
             profile = await resp.json()
             account = profile.get("account", {})
 
-            # Get account name
             account_name = (
                 account.get("display_name") or account.get("full_name") or account.get("email")
             )
 
-            # Get subscription level
             subscription_level = None
             if account.get("has_claude_max"):
                 subscription_level = "Max"
@@ -205,6 +340,50 @@ class ClaudeUsageConfigFlow(ConfigFlow, domain=DOMAIN):
             _LOGGER.exception("Error fetching account info")
             return None, None
 
+    async def _validate_codex_token(self, token: str, account_id: str | None) -> bool:
+        """Validate a Codex bearer token against the usage API."""
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "User-Agent": "CodexBar",
+            "Accept": "application/json",
+        }
+        if account_id:
+            headers["ChatGPT-Account-Id"] = account_id
+        try:
+            session = aiohttp_client.async_get_clientsession(self.hass)
+            resp = await session.get(
+                CODEX_USAGE_URL, headers=headers, timeout=aiohttp.ClientTimeout(total=15)
+            )
+            return resp.status not in (401, 403)
+        except aiohttp.ClientError:
+            _LOGGER.exception("Codex token validation request failed")
+            return False
+
+    async def _validate_antigravity_token(
+        self, access_token: str, project_id: str | None
+    ) -> bool:
+        """Validate a Google access token against the Antigravity API."""
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json",
+            "User-Agent": "antigravity",
+        }
+        body: dict[str, Any] = {}
+        if project_id:
+            body["project"] = project_id
+        try:
+            session = aiohttp_client.async_get_clientsession(self.hass)
+            resp = await session.post(
+                ANTIGRAVITY_FETCH_MODELS_URL,
+                headers=headers,
+                json=body,
+                timeout=aiohttp.ClientTimeout(total=15),
+            )
+            return resp.status not in (401, 403)
+        except aiohttp.ClientError:
+            _LOGGER.exception("Antigravity token validation request failed")
+            return False
+
     async def async_step_reauth(self, entry_data: dict[str, Any]) -> ConfigFlowResult:
         """Handle reauth when token is invalid."""
         return await self.async_step_reauth_confirm()
@@ -212,15 +391,24 @@ class ClaudeUsageConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_reauth_confirm(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Handle reauth confirmation with new OAuth code."""
+        """Dispatch reauth to the appropriate provider step."""
+        provider = self._get_reauth_entry().data.get(CONF_PROVIDER, PROVIDER_CLAUDE)
+        if provider == PROVIDER_CODEX:
+            return await self._async_step_reauth_codex(user_input)
+        if provider == PROVIDER_ANTIGRAVITY:
+            return await self._async_step_reauth_antigravity(user_input)
+        return await self._async_step_reauth_claude(user_input)
+
+    async def _async_step_reauth_claude(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Handle Claude reauth."""
         errors: dict[str, str] = {}
 
-        # Generate PKCE and state on first load
         if self._pkce_verifier is None:
             self._pkce_verifier, self._pkce_challenge = generate_pkce()
             self._state = secrets.token_urlsafe(32)
 
-        # Build OAuth URL
         params = urlencode(
             {
                 "code": "true",
@@ -267,6 +455,77 @@ class ClaudeUsageConfigFlow(ConfigFlow, domain=DOMAIN):
                 }
             ),
             description_placeholders={"url": oauth_url},
+            errors=errors,
+        )
+
+    async def _async_step_reauth_codex(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Handle Codex reauth."""
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            token = (user_input.get(CONF_CODEX_ACCESS_TOKEN) or "").strip()
+            if not token:
+                errors[CONF_CODEX_ACCESS_TOKEN] = "missing_token"
+            else:
+                entry = self._get_reauth_entry()
+                account_id = entry.data.get(CONF_CODEX_ACCOUNT_ID) or None
+                valid = await self._validate_codex_token(token, account_id)
+                if not valid:
+                    errors[CONF_CODEX_ACCESS_TOKEN] = "codex_auth_failed"
+                else:
+                    return self.async_update_reload_and_abort(
+                        entry,
+                        data_updates={CONF_CODEX_ACCESS_TOKEN: token},
+                    )
+
+        return self.async_show_form(
+            step_id="reauth_confirm",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_CODEX_ACCESS_TOKEN): selector.TextSelector(
+                        selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
+                    ),
+                }
+            ),
+            errors=errors,
+        )
+
+    async def _async_step_reauth_antigravity(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Handle Antigravity reauth."""
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            access_token = (user_input.get(CONF_ANTIGRAVITY_ACCESS_TOKEN) or "").strip()
+            if not access_token:
+                errors[CONF_ANTIGRAVITY_ACCESS_TOKEN] = "missing_token"
+            else:
+                entry = self._get_reauth_entry()
+                project_id = entry.data.get(CONF_ANTIGRAVITY_PROJECT_ID) or None
+                valid = await self._validate_antigravity_token(access_token, project_id)
+                if not valid:
+                    errors[CONF_ANTIGRAVITY_ACCESS_TOKEN] = "antigravity_auth_failed"
+                else:
+                    return self.async_update_reload_and_abort(
+                        entry,
+                        data_updates={
+                            CONF_ANTIGRAVITY_ACCESS_TOKEN: access_token,
+                            CONF_ANTIGRAVITY_EXPIRES_AT: 0,
+                        },
+                    )
+
+        return self.async_show_form(
+            step_id="reauth_confirm",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_ANTIGRAVITY_ACCESS_TOKEN): selector.TextSelector(
+                        selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
+                    ),
+                }
+            ),
             errors=errors,
         )
 
